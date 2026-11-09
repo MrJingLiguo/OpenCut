@@ -133,10 +133,12 @@ export async function collectAudioElements({
 	tracks,
 	mediaAssets,
 	audioContext,
+	onDrop,
 }: {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
 	audioContext: AudioContext;
+	onDrop?: (reason: string) => void;
 }): Promise<CollectedAudioElement[]> {
 	const candidates = collectAudibleCandidates({ tracks, mediaAssets });
 	const mediaMap = new Map<string, MediaAsset>(
@@ -151,6 +153,7 @@ export async function collectAudioElements({
 					element,
 					mediaMap,
 					audioContext,
+					onDrop,
 				}).then((audioBuffer) => {
 					if (!audioBuffer) return null;
 					return {
@@ -180,6 +183,7 @@ export async function collectAudioElements({
 				resolveAudioBufferForVideoElement({
 					mediaAsset,
 					audioContext,
+					onDrop,
 				}).then((audioBuffer) => {
 					if (!audioBuffer) return null;
 					return {
@@ -214,15 +218,32 @@ async function resolveAudioBufferForElement({
 	element,
 	mediaMap,
 	audioContext,
+	onDrop,
 }: {
 	element: AudioElement;
 	mediaMap: Map<string, MediaAsset>;
 	audioContext: AudioContext;
+	onDrop?: (reason: string) => void;
 }): Promise<AudioBuffer | null> {
 	try {
 		if (element.sourceType === "upload") {
 			const asset = mediaMap.get(element.mediaId);
-			if (!asset || asset.type !== "audio") return null;
+			if (!asset) {
+				onDrop?.(
+					`"${element.name}" (upload): no media asset matches its mediaId`,
+				);
+				return null;
+			}
+			if (asset.type !== "audio") {
+				onDrop?.(
+					`"${element.name}": asset type is "${asset.type}" instead of "audio"`,
+				);
+				return null;
+			}
+			if (!asset.file) {
+				onDrop?.(`"${element.name}": asset has no file data`);
+				return null;
+			}
 
 			const arrayBuffer = await asset.file.arrayBuffer();
 			return await audioContext.decodeAudioData(arrayBuffer.slice(0));
@@ -239,6 +260,9 @@ async function resolveAudioBufferForElement({
 		return await audioContext.decodeAudioData(arrayBuffer.slice(0));
 	} catch (error) {
 		console.warn("Failed to decode audio:", error);
+		onDrop?.(
+			`"${element.name}": decode failed (${error instanceof Error ? error.message : String(error)})`,
+		);
 		return null;
 	}
 }
@@ -246,9 +270,11 @@ async function resolveAudioBufferForElement({
 async function resolveAudioBufferForVideoElement({
 	mediaAsset,
 	audioContext,
+	onDrop,
 }: {
 	mediaAsset: MediaAsset;
 	audioContext: AudioContext;
+	onDrop?: (reason: string) => void;
 }): Promise<AudioBuffer | null> {
 	const input = new Input({
 		source: new BlobSource(mediaAsset.file),
@@ -320,6 +346,9 @@ async function resolveAudioBufferForVideoElement({
 		return await offlineContext.startRendering();
 	} catch (error) {
 		console.warn("Failed to decode video audio:", error);
+		onDrop?.(
+			`video "${mediaAsset.name}": audio decode failed (${error instanceof Error ? error.message : String(error)})`,
+		);
 		return null;
 	} finally {
 		input.dispose();
@@ -618,12 +647,14 @@ export async function createTimelineAudioBuffer({
 	duration,
 	sampleRate = EXPORT_SAMPLE_RATE,
 	audioContext,
+	onDrop,
 }: {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
 	duration: number;
 	sampleRate?: number;
 	audioContext?: AudioContext;
+	onDrop?: (reason: string) => void;
 }): Promise<AudioBuffer | null> {
 	const context = audioContext ?? createAudioContext({ sampleRate });
 
@@ -631,6 +662,7 @@ export async function createTimelineAudioBuffer({
 		tracks,
 		mediaAssets,
 		audioContext: context,
+		onDrop,
 	});
 
 	if (audioElements.length === 0) return null;

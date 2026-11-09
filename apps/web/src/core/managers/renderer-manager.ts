@@ -5,6 +5,7 @@ import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { SceneExporter } from "@/services/renderer/scene-exporter";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { createTimelineAudioBuffer } from "@/lib/media/audio";
+import { toast } from "sonner";
 import { formatTimecode } from "opencut-wasm";
 import { frameRateToFloat } from "@/lib/fps/utils";
 import { downloadBlob } from "@/utils/browser";
@@ -167,12 +168,14 @@ export class RendererManager {
 			const canvasSize = activeProject.settings.canvasSize;
 
 			let audioBuffer: AudioBuffer | null = null;
+			const droppedAudio: string[] = [];
 			if (includeAudio) {
 				onProgress?.({ progress: 0.05 });
 				audioBuffer = await createTimelineAudioBuffer({
 					tracks,
 					mediaAssets,
 					duration,
+					onDrop: (reason) => droppedAudio.push(reason),
 				});
 			}
 
@@ -221,6 +224,19 @@ export class RendererManager {
 
 				if (!buffer) {
 					return { success: false, error: "Export failed to produce buffer" };
+				}
+
+				// Audio elements that failed to decode/fetch are dropped from the
+				// mix silently upstream; surface them so the user isn't left
+				// wondering why their soundtrack is missing from the file.
+				if (droppedAudio.length > 0) {
+					console.error(
+						`[OpenCut export] skipped ${droppedAudio.length} audio element(s):`,
+						droppedAudio,
+					);
+					toast.warning("Some audio was skipped in the export", {
+						description: droppedAudio.join(" · "),
+					});
 				}
 
 				return {
