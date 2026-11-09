@@ -234,6 +234,16 @@ async function resolveAudioBufferForElement({
 				);
 				return null;
 			}
+			// Audio extracted from a video ("extract audio") references the
+			// source video asset, so decode the audio track out of it instead
+			// of expecting a standalone audio file.
+			if (asset.type === "video") {
+				return await resolveAudioBufferForVideoElement({
+					mediaAsset: asset,
+					audioContext,
+					onDrop,
+				});
+			}
 			if (asset.type !== "audio") {
 				onDrop?.(
 					`"${element.name}": asset type is "${asset.type}" instead of "audio"`,
@@ -283,7 +293,10 @@ async function resolveAudioBufferForVideoElement({
 
 	try {
 		const audioTrack = await input.getPrimaryAudioTrack();
-		if (!audioTrack) return null;
+		if (!audioTrack) {
+			onDrop?.(`"${mediaAsset.name}": no audio track found in the file`);
+			return null;
+		}
 
 		const sink = new AudioBufferSink(audioTrack);
 		const targetSampleRate = audioContext.sampleRate;
@@ -296,7 +309,10 @@ async function resolveAudioBufferForVideoElement({
 			totalSamples += buffer.length;
 		}
 
-		if (chunks.length === 0) return null;
+		if (chunks.length === 0) {
+			onDrop?.(`"${mediaAsset.name}": audio track decoded to no data`);
+			return null;
+		}
 
 		const nativeSampleRate = chunks[0].sampleRate;
 		const numChannels = Math.min(
