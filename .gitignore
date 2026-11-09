@@ -24,3 +24,5 @@ bun.lockb
 target/
 
 .cargo-tools/
+# desktop packaging output
+/dist
